@@ -4,8 +4,9 @@ import (
 	"fmt"
 	"strconv"
 
-	"github.com/determined-ai/determined/master/pkg/actor/api"
 	"github.com/gorilla/websocket"
+
+	"github.com/determined-ai/determined/master/pkg/actor/api"
 
 	"github.com/determined-ai/determined/master/pkg/actor"
 )
@@ -17,27 +18,27 @@ type portRequest struct {
 
 type portSet struct {
 	portName string
-	port int
+	port     int
 	socket   *websocket.Conn
 }
 
-type resetPorts struct {}
+type resetPorts struct{}
 
 type portMetadata struct {
-	port int
-	isSet bool
+	port            int
+	isSet           bool
 	requestsWaiting []*actor.Ref
 }
 
 type portCoordinator struct {
 	portRequests map[string]*portMetadata
-	numRequests int
+	numRequests  int
 }
 
 func newPortCoordinator() actor.Actor {
 	return &portCoordinator{
 		portRequests: make(map[string]*portMetadata),
-		numRequests: 0,
+		numRequests:  0,
 	}
 }
 
@@ -61,7 +62,6 @@ func (p *portCoordinator) Receive(ctx *actor.Context) error {
 	}
 	return nil
 }
-
 
 func (p *portCoordinator) processPortSet(ctx *actor.Context, msg portSet) error {
 	p.initSocketActor(ctx, msg.socket)
@@ -90,7 +90,6 @@ func (p *portCoordinator) processPortSet(ctx *actor.Context, msg portSet) error 
 	return nil
 }
 
-
 func (p *portCoordinator) processPortRequest(ctx *actor.Context, msg portRequest) error {
 	ref := p.initSocketActor(ctx, msg.socket)
 
@@ -111,7 +110,6 @@ func (p *portCoordinator) processPortRequest(ctx *actor.Context, msg portRequest
 	return nil
 }
 
-
 func (p *portCoordinator) initSocketActor(ctx *actor.Context, socket *websocket.Conn) *actor.Ref {
 	a := api.WrapSocket(socket, nil, false)
 	ref, _ := ctx.ActorOf(fmt.Sprintf("portRequest-socket-%d", p.numRequests), a)
@@ -120,7 +118,3 @@ func (p *portCoordinator) initSocketActor(ctx *actor.Context, socket *websocket.
 
 	return ref
 }
-
-
-
-

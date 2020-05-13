@@ -1,6 +1,7 @@
 package internal
 
 import (
+	"fmt"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -8,7 +9,6 @@ import (
 	"sync"
 	"testing"
 	"time"
-	"fmt"
 
 	"github.com/gorilla/websocket"
 	"gotest.tools/assert"
@@ -21,10 +21,10 @@ type systemForPortCoordinator struct {
 	t      *testing.T
 }
 
-var upgrader = websocket.Upgrader{}
+var portUpgrader = websocket.Upgrader{}
 
 func (s *systemForPortCoordinator) requestHandler(w http.ResponseWriter, r *http.Request) {
-	conn, err := upgrader.Upgrade(w, r, nil)
+	conn, err := portUpgrader.Upgrade(w, r, nil)
 	if err != nil {
 		s.t.Errorf("Error: %s", err)
 	}
@@ -38,7 +38,7 @@ func (s *systemForPortCoordinator) requestHandler(w http.ResponseWriter, r *http
 		s.t.Errorf("Error: %s", err)
 	}
 
-	setPortString:= query["set_port"]
+	setPortString := query["set_port"]
 	var socketActor actor.Response
 	if strings.EqualFold(setPortString[0], "True") {
 		portString := query["port"]
@@ -83,7 +83,7 @@ func requestPort(t *testing.T, addr string, wg *sync.WaitGroup, portName string,
 	_, message, err := c.ReadMessage()
 	assert.NilError(t, err)
 	assert.Equal(t, string(message),
-		string(expectedPort), "Did not receive `%d` "+
+		strconv.Itoa(expectedPort), "Did not receive %d "+
 			"response from server, got instead: %s", expectedPort, string(message))
 }
 
@@ -130,7 +130,7 @@ func TestPortCoordinatorLayer(t *testing.T) {
 
 	serverMutex := http.NewServeMux()
 	server := http.Server{Addr: addr, Handler: serverMutex}
-	serverMutex.HandleFunc("/ws/port-coordinator/*", systemRef.requestHandler)
+	serverMutex.HandleFunc("/ws/port-coordinator/", systemRef.requestHandler)
 
 	go func() {
 		if err := server.ListenAndServe(); err != nil {
