@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 
@@ -258,6 +259,67 @@ func (m *Master) rwCoordinatorWebSocket(socket *websocket.Conn, c echo.Context) 
 	return actorRef.AwaitTermination()
 }
 
+func (m *Master) portRequestWebSocket(socket *websocket.Conn, c echo.Context) error {
+	c.Logger().Infof(
+		"New connection for portRequest: %v, %s",
+		socket.RemoteAddr(),
+		c.Request().URL,
+	)
+
+	portName := c.Request().URL.Path
+	query := c.Request().URL.Query()
+
+	trialIdString, ok := query["trial_id"]
+	if !ok {
+		return echo.NewHTTPError(http.StatusBadRequest,
+			fmt.Sprintf("Received request without specifying trial id: %v", c.Request().URL))
+	}
+	trialID, err := strconv.Atoi(trialIdString[0])
+	if err != nil {
+		return err
+	}
+
+	setPortString, ok := query["set_port"]
+	if !ok {
+		return echo.NewHTTPError(http.StatusBadRequest,
+			fmt.Sprintf("Received request without specifying set_port: %v", c.Request().URL))
+	}
+
+	var socketActor actor.Response
+	if strings.EqualFold(setPortString[0], "True") {
+		portString, ok := query["port"]
+		if !ok {
+			return echo.NewHTTPError(http.StatusBadRequest,
+				fmt.Sprintf("Received request without specifying port: %v", c.Request().URL))
+		}
+		port, err := strconv.Atoi(portString[0])
+		if err != nil {
+			return err
+		}
+
+		socketActor = m.system.AskAt(actor.Addr(fmt.Sprintf("trial-%d-portCoordinator", trialID)),
+			portSet{portName, port, socket})
+
+	} else {
+		if !strings.EqualFold(setPortString[0], "False") {
+			return echo.NewHTTPError(http.StatusBadRequest,
+				fmt.Sprintf("Received request with invalid set_port: %v", c.Request().URL))
+		}
+
+		socketActor = m.system.AskAt(actor.Addr(fmt.Sprintf("trial-%d-portCoordinator", trialID)),
+			portRequest{portName, socket})
+	}
+
+	actorRef, ok := socketActor.Get().(*actor.Ref)
+	if !ok {
+		c.Logger().Errorf("Failed to get websocket actor")
+		return nil
+	}
+
+	// Wait for the websocket actor to terminate.
+	return actorRef.AwaitTermination()
+}
+
 // Run causes the Determined master to connect the database and begin listening for HTTP requests.
 func (m *Master) Run() error {
 	log.Infof("Determined master %s (built with %s)", m.Version, runtime.Version())
@@ -480,6 +542,9 @@ func (m *Master) Run() error {
 
 	m.echo.GET("/ws/data-layer/*",
 		api.WebSocketRoute(m.rwCoordinatorWebSocket))
+
+	m.echo.GET("/ws/port-coordinator/*",
+		api.WebSocketRoute(m.portRequestWebSocket))
 
 	m.echo.Any("/debug/pprof/*", echo.WrapHandler(http.HandlerFunc(pprof.Index)))
 	m.echo.Any("/debug/pprof/cmdline", echo.WrapHandler(http.HandlerFunc(pprof.Cmdline)))

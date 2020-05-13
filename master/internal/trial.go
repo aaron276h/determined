@@ -172,6 +172,8 @@ type trial struct {
 	sockets map[scheduler.ContainerID]*actor.Ref
 
 	agentUserGroup *model.AgentUserGroup
+
+	portCoordinator *actor.Ref
 }
 
 // newTrial creates a trial which will try to schedule itself after it receives its first workload.
@@ -185,6 +187,7 @@ func newTrial(
 		checkpointID := firstCheckpoint.ID
 		warmStartCheckpointID = &checkpointID
 	}
+
 	return &trial{
 		cluster:               exp.cluster,
 		logger:                exp.trialLogger,
@@ -210,6 +213,9 @@ func (t *trial) Receive(ctx *actor.Context) error {
 	switch msg := ctx.Message().(type) {
 	case actor.PreStart:
 		ctx.AddLabel("experiment-id", t.experiment.ID)
+
+		portCoordinator := newRWCoordinator()
+		t.portCoordinator, _ = ctx.ActorOf(actor.Addr(fmt.Sprintf("trial-%d-portCoordinator", t.id)), portCoordinator)
 
 	case model.State:
 		t.experimentState = msg
@@ -257,6 +263,9 @@ func (t *trial) Receive(ctx *actor.Context) error {
 				ctx.Log().Error(err)
 			}
 		}
+
+		t.portCoordinator.Stop()
+
 		return nil
 	default:
 		if t.task != nil || t.replaying {
@@ -790,6 +799,8 @@ func (t *trial) resetTrial(
 	t.pendingGracefulTermination = false
 	t.terminatedContainers = nil
 	t.startedContainers = 0
+
+	ctx.Tell(t.portCoordinator, resetPorts{})
 
 	switch {
 	case status.Failure == nil:
