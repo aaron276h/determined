@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	v1 "k8s.io/api/core/v1"
+
 	"github.com/pkg/errors"
 
 	"github.com/determined-ai/determined/master/pkg/check"
@@ -36,6 +38,7 @@ type ExperimentConfig struct {
 	Internal            *InternalConfig           `json:"internal"`
 	Entrypoint          string                    `json:"entrypoint"`
 	DataLayer           DataLayerConfig           `json:"data_layer"`
+	PodSpec             *v1.Pod                   `json:"pod_spec"`
 }
 
 // Validate implements the check.Validatable interface.
@@ -107,6 +110,7 @@ func (e ExperimentConfig) Value() (driver.Value, error) {
 	if err := check.Validate(e); err != nil {
 		return nil, err
 	}
+
 	return json.Marshal(e)
 }
 
