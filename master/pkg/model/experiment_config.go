@@ -38,7 +38,7 @@ type ExperimentConfig struct {
 	Internal            *InternalConfig           `json:"internal"`
 	Entrypoint          string                    `json:"entrypoint"`
 	DataLayer           DataLayerConfig           `json:"data_layer"`
-	PodSpec             *v1.Pod                   `json:"pod_spec"`
+	Kuberenetes         KubernetesConfig          `json:"kubernetes"`
 }
 
 // Validate implements the check.Validatable interface.
@@ -268,4 +268,9 @@ type InternalConfig struct {
 // NativeConfig represents configuration set by Determined native implementations.
 type NativeConfig struct {
 	Command []string `json:"command"`
+}
+
+// KubernetesConfig configures kubernetes specific settings.
+type KubernetesConfig struct {
+	PodSpec *v1.Pod `json:"pod_spec"`
 }
