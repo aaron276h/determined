@@ -5,7 +5,6 @@ import (
 	"net/url"
 	"strconv"
 	"syscall"
-	"time"
 
 	"github.com/determined-ai/determined/master/pkg/device"
 
@@ -23,13 +22,6 @@ import (
 	"github.com/determined-ai/determined/master/pkg/model"
 	image "github.com/determined-ai/determined/master/pkg/tasks"
 )
-
-const (
-	actionCooldown = 500 * time.Millisecond
-)
-
-// schedulerTick periodically triggers the scheduler to act.
-type schedulerTick struct{}
 
 // DefaultRP manages the agent and task lifecycles.
 type DefaultRP struct {

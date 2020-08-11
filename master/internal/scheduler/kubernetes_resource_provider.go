@@ -27,6 +27,7 @@ type kubernetesResourceProvider struct {
 	tasksByContainerID map[ContainerID]*Task
 	groups             map[*actor.Ref]*group
 	registeredNames    map[*container][]string
+	taskQueue          *taskList
 
 	assignmentsByTaskHandler map[*actor.Ref][]podAssignment
 
@@ -55,6 +56,7 @@ func NewKubernetesResourceProvider(
 		tasksByContainerID: make(map[ContainerID]*Task),
 		groups:             make(map[*actor.Ref]*group),
 		registeredNames:    make(map[*container][]string),
+		taskQueue:          newTaskList(),
 
 		assignmentsByTaskHandler: make(map[*actor.Ref][]podAssignment),
 	}
@@ -63,6 +65,7 @@ func NewKubernetesResourceProvider(
 func (k *kubernetesResourceProvider) Receive(ctx *actor.Context) error {
 	switch msg := ctx.Message().(type) {
 	case actor.PreStart:
+		actors.NotifyAfter(ctx, actionCooldown*2, schedulerTick{})
 
 	case sproto.ConfigureEndpoints:
 		ctx.Log().Infof("initializing endpoints for pods")
@@ -114,6 +117,12 @@ func (k *kubernetesResourceProvider) Receive(ctx *actor.Context) error {
 
 	case sproto.GetEndpointActorAddress:
 		ctx.Respond("/pods")
+
+	case schedulerTick:
+		// To avoid overwhelming the kubernetes API server we only
+		// submit a task once per second.
+		k.scheduleTaskFromQueue(ctx)
+		actors.NotifyAfter(ctx, actionCooldown*2, schedulerTick{})
 
 	default:
 		ctx.Log().Errorf("unexpected message %T", msg)
@@ -167,7 +176,14 @@ func (k *kubernetesResourceProvider) receiveAddTask(ctx *actor.Context, msg AddT
 		ctx.Respond(task)
 	}
 
-	k.scheduleTask(ctx, task)
+	k.taskQueue.Add(task)
+}
+
+func (k *kubernetesResourceProvider) scheduleTaskFromQueue(ctx *actor.Context) {
+	if newTask := k.taskQueue.GetFirst(); newTask != nil {
+		k.taskQueue.Remove(newTask)
+		k.scheduleTask(ctx, newTask)
+	}
 }
 
 func (k *kubernetesResourceProvider) scheduleTask(ctx *actor.Context, task *Task) {
@@ -334,6 +350,7 @@ func (k *kubernetesResourceProvider) taskTerminated(task *Task, aborted bool) {
 	k.taskList.Remove(task)
 	delete(k.tasksByID, task.ID)
 	delete(k.tasksByHandler, task.handler)
+	k.taskQueue.Remove(task)
 
 	for id := range task.containers {
 		delete(k.tasksByContainerID, id)

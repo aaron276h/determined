@@ -34,6 +34,14 @@ func (l *taskList) Remove(task *Task) {
 	l.tasksByTime.Remove(task)
 }
 
+func (l *taskList) GetFirst() *Task {
+	it := l.tasksByTime.Iterator()
+	if it.First() {
+		return it.Value().(*Task)
+	}
+	return nil
+}
+
 func (l *taskList) TaskSummaries() map[TaskID]TaskSummary {
 	ret := make(map[TaskID]TaskSummary)
 	for it := l.iterator(); it.next(); {
