@@ -139,6 +139,6 @@ def set_random_seed(config: Dict[Any, Any], seed: int) -> Dict[Any, Any]:
 
 def set_pod_spec(config: Dict[Any, Any], pod_spec: Dict[Any, Any]) -> Dict[Any, Any]:
     config = config.copy()
-    config.setdefault("kubernetes", {})
-    config["kubernetes"]["pod_spec"] = pod_spec
+    config.setdefault("environment", {})
+    config["environment"]["pod_spec"] = pod_spec
     return config
