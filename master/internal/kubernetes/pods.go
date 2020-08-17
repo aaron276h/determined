@@ -229,7 +229,7 @@ func (p *pods) deleteExistingKubernetesResources(ctx *actor.Context) error {
 }
 
 func (p *pods) startPodInformer(ctx *actor.Context) {
-	p.informer, _ = ctx.ActorOf("pod-informer", newInformer(p.podInterface, p.namespace, ctx.Self()))
+	p.informer, _ = ctx.ActorOf("pod-informer", newInformer(p.clientSet, p.namespace, ctx.Self()))
 }
 
 func (p *pods) startEventListener(ctx *actor.Context) {

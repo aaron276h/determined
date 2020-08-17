@@ -1,18 +1,52 @@
 package kubernetes
 
 import (
-	"github.com/pkg/errors"
+	"sync"
+	"time"
 
 	k8sV1 "k8s.io/api/core/v1"
 	metaV1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	typedV1 "k8s.io/client-go/kubernetes/typed/core/v1"
+	k8sInformers "k8s.io/client-go/informers"
+	k8sClient "k8s.io/client-go/kubernetes"
+	k8sCache "k8s.io/client-go/tools/cache"
 
 	"github.com/determined-ai/determined/master/pkg/actor"
+	"github.com/determined-ai/determined/master/pkg/actor/actors"
 )
+
+const informerCoolDown = time.Millisecond * 250
+
+// concurrentSlice is used to track internal state of the informer in a thread safe way.
+type concurrentSlice struct {
+	lock    sync.Mutex
+	updates []*k8sV1.Pod
+}
+
+func newConcurrentSlice() *concurrentSlice {
+	return &concurrentSlice{updates: make([]*k8sV1.Pod, 0)}
+}
+
+func (c *concurrentSlice) append(pod *k8sV1.Pod) {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+	c.updates = append(c.updates, pod)
+}
+
+func (c *concurrentSlice) getUpdates() []*k8sV1.Pod {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+	if len(c.updates) == 0 {
+		return nil
+	}
+
+	updates := c.updates
+	c.updates = make([]*k8sV1.Pod, 0)
+	return updates
+}
 
 // messages that are sent to the informer.
 type (
-	startInformer struct{}
+	informerTick struct{}
 )
 
 // messages that are sent by the informer.
@@ -23,20 +57,25 @@ type (
 )
 
 type informer struct {
-	podInterface typedV1.PodInterface
-	namespace    string
-	podsHandler  *actor.Ref
+	clientSet   *k8sClient.Clientset
+	namespace   string
+	podsHandler *actor.Ref
+
+	updates    *concurrentSlice
+	stopSignal chan struct{}
 }
 
 func newInformer(
-	podInterface typedV1.PodInterface,
+	clientSet *k8sClient.Clientset,
 	namespace string,
 	podsHandler *actor.Ref,
 ) *informer {
 	return &informer{
-		podInterface: podInterface,
-		namespace:    namespace,
-		podsHandler:  podsHandler,
+		clientSet:   clientSet,
+		namespace:   namespace,
+		podsHandler: podsHandler,
+		updates:     newConcurrentSlice(),
+		stopSignal:  make(chan struct{}),
 	}
 }
 
@@ -44,14 +83,13 @@ func newInformer(
 func (i *informer) Receive(ctx *actor.Context) error {
 	switch msg := ctx.Message().(type) {
 	case actor.PreStart:
-		ctx.Tell(ctx.Self(), startInformer{})
+		ctx.Tell(ctx.Self(), informerTick{})
 
-	case startInformer:
-		if err := i.startInformer(ctx); err != nil {
-			return err
-		}
+	case informerTick:
 
 	case actor.PostStop:
+		// This should never be reached.
+		close(i.stopSignal)
 
 	default:
 		ctx.Log().Errorf("unexpected message %T", msg)
@@ -61,25 +99,46 @@ func (i *informer) Receive(ctx *actor.Context) error {
 	return nil
 }
 
-func (i *informer) startInformer(ctx *actor.Context) error {
-	watch, err := i.podInterface.Watch(metaV1.ListOptions{LabelSelector: determinedLabel})
-	if err != nil {
-		return errors.Wrap(err, "error initializing pod watch")
+func (i *informer) prepareInformer(ctx *actor.Context) {
+	k8sInformers.NewSharedInformerFactory(i.clientSet, 0)
+
+	// Set up options to filter pods.
+	options := func(options *metaV1.ListOptions) {
+		options.LabelSelector = determinedLabel
+	}
+	sharedOptions := []k8sInformers.SharedInformerOption{
+		k8sInformers.WithNamespace(i.namespace),
+		k8sInformers.WithTweakListOptions(options),
 	}
 
-	ctx.Log().Info("pod informer is starting")
-	for event := range watch.ResultChan() {
-		pod := event.Object.(*k8sV1.Pod)
-		if pod.Namespace != i.namespace {
-			continue
-		}
+	informer := k8sInformers.NewSharedInformerFactoryWithOptions(
+		i.clientSet, time.Second*5, sharedOptions...)
+	podInformer := informer.Core().V1().Pods().Informer()
+	podInformer.AddEventHandler(&k8sCache.ResourceEventHandlerFuncs{
+		AddFunc: func(obj interface{}) {
+			newPod := obj.(*k8sV1.Pod)
+			i.updates.append(newPod)
+		},
+		UpdateFunc: func(oldObj, newObj interface{}) {
+			updatedPod := newObj.(*k8sV1.Pod)
+			i.updates.append(updatedPod)
+		},
+		DeleteFunc: func(obj interface{}) {
+			deletedPod := obj.(*k8sV1.Pod)
+			i.updates.append(deletedPod)
+		},
+	})
 
-		ctx.Log().Debugf("informer got new pod event for pod: %s %s", pod.Name, pod.Status.Phase)
-		ctx.Tell(i.podsHandler, podStatusUpdate{updatedPod: pod})
+	ctx.Log().Infof("starting pod informer")
+	informer.Start(i.stopSignal)
+	for !podInformer.HasSynced() {
 	}
+	ctx.Log().Infof("pod informer has synced")
+}
 
-	ctx.Log().Warn("pod informer stopped unexpectedly")
-	ctx.Tell(ctx.Self(), startInformer{})
-
-	return nil
+func (i *informer) processUpdates(ctx *actor.Context) {
+	for _, update := range i.updates.getUpdates() {
+		ctx.Tell(i.podsHandler, podStatusUpdate{updatedPod: update})
+	}
+	actors.NotifyAfter(ctx, informerCoolDown, informerTick{})
 }
