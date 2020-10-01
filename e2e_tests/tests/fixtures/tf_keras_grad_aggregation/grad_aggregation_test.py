@@ -15,6 +15,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--tf1", action="store_true")
 parser.add_argument("--aggregation-frequency", dest="aggregation_frequency", default=0, type=int)
 parser.add_argument("--average-aggregated-gradients", action="store_true")
+parser.add_argument("--indexed-slices", action="store_true")
 args = parser.parse_args()
 
 
@@ -22,6 +23,17 @@ class CustomOptimizer(optimizer_v2.OptimizerV2):
     def get_config(self) -> Any:
         config = super(CustomOptimizer, self).get_config()
         return config
+
+
+def test_tf_1_indexed_slices(session, hvd_optimizer):
+    grad = [tf.IndexedSlices(
+        values=tf.constant([[hvd.rank() * 3.0]]),
+        indices=tf.constant([2.0])
+    )]
+
+    op = hvd_optimizer._allreduce(grad)
+    result = session.run(op)
+    print(f"output of op: {result[0].values}")
 
 
 def test_tf_1(aggregation_frequency: int, average_aggregated_gradients: bool) -> None:
@@ -37,14 +49,31 @@ def test_tf_1(aggregation_frequency: int, average_aggregated_gradients: bool) ->
         average_aggregated_gradients=average_aggregated_gradients,
     )
 
-    constant_multiplier = 4.0
-    op = hvd_optimizer._allreduce([tf.constant([[hvd.rank() * constant_multiplier]])])
-    for idx in range(10):
-        value = session.run(op)[0][0][0]
-        expected_value = compute_expected_value(
-            idx, aggregation_frequency, constant_multiplier, average_aggregated_gradients, False
-        )
-        assert expected_value == value
+    if args.indexed_slices:
+        test_tf_1_indexed_slices(session, hvd_optimizer)
+    else:
+        constant_multiplier = 4.0
+        grads = [tf.constant([[(hvd.rank() * constant_multiplier) + 1.0]])]
+        op = hvd_optimizer._allreduce(grads)
+        for idx in range(10):
+            value = session.run(op)[0][0][0]
+            expected_value = compute_expected_value(
+                idx, aggregation_frequency, constant_multiplier, average_aggregated_gradients, False
+            )
+            assert expected_value == value
+
+
+def test_tf2_indexed_slices(hvd_optimizer):
+    grads = [tf.IndexedSlices(
+        values=tf.constant([[hvd.rank() * 3.0]]),
+        indices=tf.constant([2], dtype=tf.int32)
+    )]
+    vars = [None]
+    grads_and_vars = zip(grads, vars)
+
+    print(f"pre-aggregation {grads[0].values}")
+    aggregated_grads = hvd_optimizer._aggregate_gradients(grads_and_vars)
+    print(f"aggregated_grads {aggregated_grads[0].values}")
 
 
 def test_tf_2(aggregation_frequency: int, average_aggregated_gradients: bool) -> None:
@@ -60,16 +89,19 @@ def test_tf_2(aggregation_frequency: int, average_aggregated_gradients: bool) ->
         average_aggregated_gradients=average_aggregated_gradients,
     )
 
-    constant_multiplier = 4.0
-    for idx in range(10):
-        grads = hvd_optimizer._aggregate_gradients(
-            [(tf.constant([[hvd.rank() * constant_multiplier]]), None)]
-        )
-        value = grads[0][0][0].numpy()
-        expected_value = compute_expected_value(
-            idx, aggregation_frequency, constant_multiplier, average_aggregated_gradients, True
-        )
-        assert expected_value == value
+    if args.indexed_slices:
+        test_tf2_indexed_slices(hvd_optimizer)
+    else:
+        constant_multiplier = 4.0
+        for idx in range(10):
+            grads = hvd_optimizer._aggregate_gradients(
+                [(tf.constant([[(hvd.rank() * constant_multiplier) + 1.0]]), None)]
+            )
+            value = grads[0][0][0].numpy()
+            expected_value = compute_expected_value(
+                idx, aggregation_frequency, constant_multiplier, average_aggregated_gradients, True
+            )
+            assert expected_value == value
 
 
 def compute_expected_value(
@@ -84,12 +116,12 @@ def compute_expected_value(
         reduction_sum = 0.0
         for _ in range(aggregation_frequency):
             for rank in range(hvd.size()):
-                reduction_sum += rank * multiplier / float(hvd.size())
+                reduction_sum += (rank * multiplier + 1.0) / float(hvd.size())
         if average_aggregated_gradient:
             reduction_sum /= float(aggregation_frequency)
         return reduction_sum
     else:
-        result = hvd.rank() * multiplier
+        result = (hvd.rank() * multiplier) + 1.0
         if tf2:
             result *= idx % aggregation_frequency
         return result

@@ -7,7 +7,7 @@ hyperparameters:
   layer1_dropout: 0.25
   layer2_dropout: 0.25
   layer3_dropout: 0.5
-  global_batch_size: 32
+  global_batch_size: 8
   width_shift_range: 0.1
   height_shift_range: 0.1
   horizontal_flip: True
@@ -20,3 +20,11 @@ searcher:
 min_validation_period:
   epochs: 1
 entrypoint: model_def:CIFARTrial
+environment:
+  #image: "determinedai/environments:cuda-10.0-pytorch-1.4-tf-1.15-gpu-2c5b30c"
+  image: "determinedai/environments:cuda-10.1-pytorch-1.4-tf-2.2-gpu-2c5b30c"
+resources:
+  slots_per_trial: 4
+optimizations:
+  aggregation_frequency: 4
+max_restarts: 0
