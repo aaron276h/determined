@@ -11,9 +11,10 @@ To have Determined configure an externally accessible load balancer for the
 maser, please set "Values.useNodePortForMaster" to false.
 {{ else }}
 
-Once it is up you can get the IP address of your deployment by running:
+The IP address of the Determined master is External-IP of the determined-master-servcie,
+which you can lookup by running:
 
-kubectl get service determined-master-service-{{ .Release.Name }} -n {{ .Release.Namespace }} --output jsonpath='{.status.loadBalancer.ingress[0].ip}'
+kubectl get service determined-master-service-{{ .Release.Name }} -n {{ .Release.Namespace }}
 
 {{ end -}}
 
