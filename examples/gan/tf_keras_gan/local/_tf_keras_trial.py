@@ -205,10 +205,6 @@ class TFKerasTrialController(det.LoopTrialController):
         self.expect_terminate = False
 
     @staticmethod
-    def supports_multi_gpu_training() -> bool:
-        return True
-
-    @staticmethod
     def _configure_session(
         env: det.EnvContext,
         hvd_config: horovod.HorovodContext,
@@ -555,9 +551,8 @@ class TFKerasTrialController(det.LoopTrialController):
 
         # If the model was compiled with metrics=None, metrics_value will be a single value.
         if not isinstance(metrics_values, (tuple, list)):
-            metrics_values = [metrics_values]
+            metrics_values = (metrics_values,)
 
-        print(f"eval metrics: {metrics_values}")
         if self.hvd_config.use:
             for index, metric_value in enumerate(metrics_values):
                 metrics_values[index] = np.array(hvd.allreduce(metric_value))

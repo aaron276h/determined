@@ -1,0 +1,2 @@
+cp -pv /run/determined/workdir/local/_tf_keras_context.py /run/determined/pythonuserbase/lib/python3.6/site-packages/determined/keras/_tf_keras_context.py
+cp -pv /run/determined/workdir/local/_tf_keras_trial.py /run/determined/pythonuserbase/lib/python3.6/site-packages/determined/keras/_tf_keras_trial.py

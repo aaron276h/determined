@@ -29,7 +29,8 @@ def load_model(
 
         trial = cast(TFKerasTrial, trial_cls(trial_context))
         model = trial.build_model()
-        model.load_weights(str(ckpt_dir.joinpath("determined-keras-model.h5")))
+        model.built = True
+        model.load_weights(str(ckpt_dir.joinpath("determined-keras-weights.h5")))
         return model
     else:
         raise AssertionError("Unknown checkpoint format at {}".format(str(ckpt_dir)))
